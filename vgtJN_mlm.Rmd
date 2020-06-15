@@ -1,0 +1,96 @@
+---
+title: "VGT JN mlms"
+author: "Mariya Cherkasova"
+date: "August 16, 2017"
+output:html_document
+---
+Cherkasova(2018), Journal of Neuroscience
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Load libraries and file and create other variables
+
+```{r}
+rm(list=ls()) #clear env
+library(lme4)
+library(ggplot2)
+library(lattice)
+library(lmerTest)
+library(emmeans)
+
+file <- "C:/Users/Mariya/Desktop/CUES/CUES_DATA/VGT_logistic/vgtCues.csv"
+df <- read.csv(file, header=TRUE, sep=",")
+
+df$won_1 <- c(0, x$won[1:13099]) #1:{the number of observations-1}
+df$won_1 <- ifelse(won_1==1,.5,-.5) #center variable
+df$choicemag <- ifelse(x$hiPchoice==1,x$lomag, x$himag)
+df$outVal <- ifelse(x$won==1,choicemag,0)
+df$outVal_1 <- c(0, outVal[1:13099]) #1:{the number of observations-1}
+df$hiPchoice_1 <- c(0, x$hiPchoice[1:13099])
+df$stayShift <- ifelse(hiPchoice_1==x$hiPchoice,"stay","shift") #0 = stay; 1 = shift
+df$cues = ifelse(x$cued == 1, "cued", "uncued") 
+
+df$order <- ifelse(x$subj==102 | x$subj==103 | x$subj==105 | x$subj==108 | x$subj==111 | x$subj==119 | x$subj==122 | x$subj==125 | x$subj==131 | x$subj==134 | x$subj==141 | x$subj==142 | x$subj==143 | x$subj==147 | x$subj==149 | x$subj==151 | x$subj==154 | x$subj==154 | x$subj==155 | x$subj==157 | x$subj==163 | x$subj==165 | x$subj==172 | x$subj==173 | x$subj==182 | x$subj==183 | x$subj==186 | x$subj==204 | x$subj==229 | x$subj==230 | x$subj==101 | x$subj==112 | x$subj==118 | x$subj==121 | x$subj==128 | x$subj==130 | x$subj==136 | x$subj==138 | x$subj==140 | x$subj==150 | x$subj==153 | x$subj==158 | x$subj==159 | x$subj==164 | x$subj==170 | x$subj==174 | x$subj==175 | x$subj==180 | x$subj==181 | x$subj==187 | x$subj==189 | x$subj==190 | x$subj==195 | x$subj==197 | x$subj==200 | x$subj==206 | x$subj==209 | x$subj==211 | x$subj==212 | x$subj==214 | x$subj==216 | x$subj==217 | x$subj==222 | x$subj==224 | x$subj==226 | x$subj==228, "IV","VI") 
+
+df$gender <- ifelse(x$subj==104 | x$subj==105 | x$subj==108 | x$subj==115 | x$subj==116 | x$subj==122 | x$subj==124 | x$subj==125 | x$subj==131 | x$subj==133 | x$subj==141 | x$subj==142 | x$subj==145 | x$subj==149 | x$subj==154 | x$subj==157 | x$subj==158 | x$subj==165 | x$subj==167 | x$subj==176 | x$subj==178 | x$subj==180 | x$subj==196 | x$subj==199 | x$subj==200 | x$subj==202 | x$subj==205 | x$subj==206 | x$subj==207 | x$subj==208 | x$subj==209 | x$subj==210 | x$subj==211 | x$subj==212 | x$subj==213 | x$subj==214 | x$subj==215 | x$subj==216 | x$subj==217 | x$subj==218 | x$subj==219 | x$subj==220 | x$subj==221 | x$subj==222 | x$subj==223 | x$subj==224 | x$subj==225 | x$subj==226 | x$subj==227 | x$subj==228 | x$subj==229 | x$subj==230 | x$subj==231, "male","female")
+
+```
+
+# Isometric log ratio transformations, since both probabilities and magnitudes are compositional data. 
+
+```{r}
+# 'z' is an 'n' by 'k' matrix of positive observations with k>=2.  In our case 'n' is all the rows (or trials) and 'k' is the two probabilities that add up to 1.  To start, we creat maxtrix 'z'.
+
+z <- cbind(x$hiprob,x$loprob)
+zz <- cbind(x$himag,x$lomag)
+
+ilr <- function(z, p=0) {
+  y <- log(z)
+  if(p != 0) y <- (exp(p * y)-1)/p   #box cox transformation
+  y <- y - rowMeans(y, na.rm = TRUE) #recentered values
+  k <- dim(y)[2]
+  H <- contr.helmert(k)              #dimensions k by k-1
+  H <- t(H)/sqrt((2:k)*(2:k-1))      #dimensions k-1 by k
+  return(y %*% t(H))                 #Rotated/reflected values
+}
+
+# Obtain the ILR
+
+y$probLR <- ilr(z)
+y$magLR <- ilr(zz)  #for magnitudes
+
+```
+
+# Mixed linear models: random intercepts for participants, random slopes for trial (prospect) repetitions.
+Random slopes to model repeated trials are chosen because there is a significant change in risk tolerance as a function of repeated trials, but a simpler random intercept model works too, especially if the model has a hard time converging.
+Model1: EVR in interaction with cues as fixed effects; order as fixed factor. 
+Model2: Cues in interaction with probability LR variable & cues in interaction with magnitude LR variable; order as fixed factor. 
+
+```{r}
+
+ml = glmer(hiPchoice ~ cues + order + Rep + (1|subj), data=df, family = binomial)
+summary(ml) # just to look at the effect of repetition
+
+ml = glmer(hiPchoice ~ cues*EVR + order + (Rep|subj), data=df, family = binomial)
+summary(ml) 
+
+ml = glmer(hiPchoice ~ cues*probsLR.1 + cues*magsLR.1 + order + (Rep|subj), data=df, family = binomial)
+summary(ml) 
+
+ml = glmer(hiPchoice ~ cues*won_1 + order + (Rep|subj), data=df, family = binomial)
+summary(ml) 
+
+```
+
+#Response time analysis.  
+No effect of cues on RT; effects of both probabilities and magnitudes - takes longer (presumably harder) to choose at more values
+
+```{r}
+
+mRt = lmer(RT ~ cues*probsLR.1 + cues*magsLR.1 + (Rep|subj), data=df)
+summary(mRt) #no effect of cues of RT
+
+
+```
+
